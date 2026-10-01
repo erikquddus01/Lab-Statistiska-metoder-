@@ -1,0 +1,437 @@
+\documentclass{article}
+
+% NeurIPS 2026 template.
+% "preprint" keeps author names visible and removes review line numbers.
+% Remove "preprint" if your instructor wants the anonymous submission style.
+\usepackage[preprint]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{url}
+\usepackage{hyperref}
+
+\title{Kernel Density Estimation via Diffusion}
+
+\author{
+  Erik Quddus
+  \And
+  Badr Eddin Amaya
+}
+
+\begin{document}
+
+\maketitle
+
+
+% ============================================================
+% (a) MAIN ALGORITHM, FORMULATION, AND THESIS
+% ============================================================
+
+\section{Method and main idea}
+
+Given observations
+\[
+X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} f,
+\]
+the goal is to estimate the unknown density $f$. The ordinary Gaussian
+kernel density estimator (KDE) is
+\[
+\widehat f(x;t)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\phi(x,X_i;t),
+\qquad
+\phi(x,y;t)
+=
+\frac{1}{\sqrt{2\pi t}}
+\exp\left(
+-\frac{(x-y)^2}{2t}
+\right),
+\]
+where the conventional bandwidth is $h=\sqrt{t}$.
+
+A key observation of Botev, Grotowski, and Kroese
+\citep{botev2010} is that the Gaussian KDE is also the solution of the
+heat equation
+\[
+\frac{\partial \widehat f}{\partial t}
+=
+\frac{1}{2}
+\frac{\partial^2 \widehat f}{\partial x^2},
+\qquad
+\widehat f(x;0)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}\delta(x-X_i).
+\]
+Thus, $t$ can be interpreted as diffusion time: increasing $t$
+corresponds to increasing the amount of smoothing.
+
+The paper replaces the ordinary heat equation by the more general
+diffusion equation
+\[
+\frac{\partial g(x;t)}{\partial t}
+=
+Lg(x;t),
+\]
+with
+\[
+Lh(x)
+=
+\frac{1}{2}
+\frac{d}{dx}
+\left[
+a(x)
+\frac{d}{dx}
+\left(
+\frac{h(x)}{p(x)}
+\right)
+\right].
+\]
+Here $p(x)$ is a pilot density and $a(x)$ determines the local diffusion
+behaviour. The family
+\[
+a(x)=p(x)^\alpha,
+\qquad 0\leq\alpha\leq1,
+\]
+includes several forms of adaptive smoothing. Following the numerical
+experiments in the paper, we use $\alpha=1$, so that
+\[
+a(x)=p(x).
+\]
+
+The main thesis of the paper is that interpreting KDE as diffusion
+provides a flexible adaptive estimator that can use information from a
+pilot density, naturally handle boundaries, and combine this with a
+fully data-driven plug-in bandwidth selector that avoids the normal
+reference rules used by earlier plug-in methods.
+
+
+\subsection{Algorithm 1: pilot bandwidth selection}
+
+The first stage is the Improved Sheather--Jones (ISJ) procedure. Its
+purpose is to obtain a bandwidth for a Gaussian pilot density without
+assuming that the unknown density is Gaussian.
+
+The method solves the fixed-point equation
+\[
+t=\xi\gamma^{[l]}(t),
+\qquad
+\xi
+=
+\left(
+\frac{6\sqrt{2}-3}{7}
+\right)^{2/5},
+\]
+using
+\[
+z_{n+1}=\xi\gamma^{[l]}(z_n).
+\]
+The authors recommend $l=5$.
+
+Algorithm 1 produces two quantities:
+\[
+\widehat t_p
+\qquad\text{and}\qquad
+\widehat t_2.
+\]
+The first is used to form the pilot density
+\[
+p(x)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\phi(x,X_i;\widehat t_p),
+\]
+while $\widehat t_2$ is an auxiliary bandwidth used later to estimate
+the roughness required for the final diffusion bandwidth. Thus, the two
+bandwidths have different purposes.
+
+
+\subsection{Algorithm 2: diffusion estimator}
+
+Algorithm 2 uses the pilot $p$ to construct the final estimator. For
+$a=p$,
+\[
+\sigma^2(x)=\frac{a(x)}{p(x)}=1.
+\]
+
+The asymptotically optimal diffusion time is
+\[
+t^\star
+=
+\left[
+\frac{
+E_f[\sigma^{-1}(X)]
+}{
+2N\sqrt{\pi}\,
+\|Lf\|_2^2
+}
+\right]^{2/5}.
+\]
+The difficulty is that $f$ is unknown, and hence $\|Lf\|_2^2$ is also
+unknown. The paper estimates it using
+\[
+\widehat{\|Lf\|_2^2}
+=
+\|Lg(\cdot;\widehat t_2)\|_2^2.
+\]
+Since the diffusion equation gives
+\[
+Lg=\frac{\partial g}{\partial t},
+\]
+we numerically approximate
+\[
+\frac{\partial g}{\partial t}
+(x;\widehat t_2)
+\approx
+\frac{
+g(x;\widehat t_2+\varepsilon)
+-
+g(x;\widehat t_2)
+}{
+\varepsilon
+}.
+\]
+
+For $a=p$, $\sigma=1$, and therefore
+\[
+\widehat t^\star
+=
+\left[
+\frac{
+1
+}{
+2N\sqrt{\pi}\,
+\widehat{\|Lf\|_2^2}
+}
+\right]^{2/5}.
+\]
+
+Finally, the empirical distribution is evolved under the diffusion
+equation from $t=0$ to $t=\widehat t^\star$. The final estimate is
+\[
+\boxed{
+\widehat f_{\mathrm{diff}}(x)
+=
+g(x;\widehat t^\star).
+}
+\]
+
+The complete pipeline is
+\[
+X_{1:N}
+\longrightarrow
+(\widehat t_p,\widehat t_2)
+\longrightarrow
+p
+\longrightarrow
+\widehat{\|Lf\|_2^2}
+\longrightarrow
+\widehat t^\star
+\longrightarrow
+g(\cdot;\widehat t^\star).
+\]
+
+
+% ============================================================
+% (b) REPRODUCTION
+% ============================================================
+
+\section{Reproduction}
+
+We reproduce the boundary-bias experiment in Figure~1 of
+\citet{botev2010}. The true density is
+\[
+f(x)=4(1-x)^3,
+\qquad 0\leq x\leq1,
+\]
+which is a $\mathrm{Beta}(1,4)$ density. The paper uses
+\[
+N=1000,
+\qquad
+\sqrt{t}=0.05248.
+\]
+Since this bandwidth is explicitly given, Algorithm~1 is not required
+for this particular reproduction.
+
+The ordinary Gaussian KDE is
+\[
+\widehat f_G(x;t)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\phi(x,X_i;t).
+\]
+For the boundary-aware estimator, the reflection kernel is
+\[
+\kappa(x,X_i;t)
+=
+\sum_{k=-\infty}^{\infty}
+\left[
+\phi(x,2k+X_i;t)
++
+\phi(x,2k-X_i;t)
+\right],
+\]
+giving
+\[
+\widehat f_B(x;t)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\kappa(x,X_i;t).
+\]
+
+The ordinary Gaussian estimator loses probability mass outside
+$[0,1]$ near the boundary. The reflected estimator instead accounts
+for the boundary and should therefore more closely follow the true
+density near $x=0$.
+
+\paragraph{Unspecified details and implementation choices.}
+The paper specifies the target density, $N$, and bandwidth, but does not
+provide the exact simulated sample or random seed. We therefore generate
+a new sample from $\mathrm{Beta}(1,4)$. The infinite reflection sum must
+also be truncated numerically.
+
+% Complete this after implementation:
+%
+% Random seed: TODO
+% Number of grid points: TODO
+% Reflection truncation rule: TODO
+% Numerical tolerance: TODO
+% Any other choices: TODO
+
+\begin{figure}[t]
+  \centering
+  % Uncomment after the result exists:
+  % \includegraphics[width=0.82\linewidth]
+  % {results/figure1_reproduction.pdf}
+  \fbox{
+    \parbox[c][3.2cm][c]{0.78\linewidth}{
+      \centering
+      TODO: insert Figure 1 reproduction
+    }
+  }
+  \caption{
+    Reproduction of the boundary-bias experiment.
+    TODO: complete after running the experiment.
+  }
+  \label{fig:reproduction}
+\end{figure}
+
+\paragraph{Result.}
+TODO: State whether the main qualitative result was reproduced.
+Describe the behaviour of the Gaussian KDE and reflected estimator near
+$x=0$, and report any important numerical differences from the paper.
+
+
+% ============================================================
+% (c) VARIATION
+% ============================================================
+
+\section{Variation: sample size}
+
+Our proposed variation is the sample size $N$. We investigate how the
+accuracy of the diffusion estimator changes when the amount of
+available data changes. Subject to the course requirement that another
+group using the same paper does not choose the same variation, we use
+\[
+N\in\{50,100,250,500,1000,5000\}.
+\]
+
+For each value of $N$, data are generated from the same
+$\mathrm{Beta}(1,4)$ target. The complete method is then recomputed:
+Algorithm~1 gives $\widehat t_p$ and $\widehat t_2$, the pilot $p$ is
+constructed, Algorithm~2 gives $\widehat t^\star$, and the final
+diffusion density is evaluated.
+
+Since the true density is known, estimation error is measured by
+integrated squared error,
+\[
+\operatorname{ISE}
+=
+\int
+\left[
+g(x;\widehat t^\star)-f(x)
+\right]^2dx.
+\]
+For $R$ independent repetitions, we report
+\[
+\overline{\operatorname{ISE}}_N
+=
+\frac{1}{R}
+\sum_{r=1}^{R}
+\operatorname{ISE}_{N,r}.
+\]
+
+% Complete after implementation:
+%
+% Number of repetitions R: TODO
+% Random-seed strategy: TODO
+% PDE grid/domain: TODO
+% ODE solver: TODO
+% Solver tolerances: TODO
+% Representation of the empirical initial condition: TODO
+
+\begin{figure}[t]
+  \centering
+  % Uncomment after the result exists:
+  % \includegraphics[width=0.80\linewidth]
+  % {results/sample_size_experiment.pdf}
+  \fbox{
+    \parbox[c][3.2cm][c]{0.76\linewidth}{
+      \centering
+      TODO: insert sample-size experiment
+    }
+  }
+  \caption{
+    TODO: mean integrated squared error as a function of sample size.
+  }
+  \label{fig:variation}
+\end{figure}
+
+\paragraph{Result.}
+TODO: Report the actual numerical trend after running the experiment.
+State the mean error for the tested sample sizes and discuss what the
+result suggests about the effect of sample size. Do not fill this section
+until the experiment has been executed.
+
+
+% ============================================================
+% REFERENCES -- EXCLUDED FROM THE FOUR-PAGE LIMIT
+% ============================================================
+
+\bibliographystyle{plainnat}
+
+\begin{thebibliography}{1}
+
+\bibitem[Botev et~al.(2010)Botev, Grotowski, and Kroese]{botev2010}
+Z.~I. Botev, J.~F. Grotowski, and D.~P. Kroese.
+\newblock Kernel density estimation via diffusion.
+\newblock \emph{The Annals of Statistics},
+  38(5):2916--2957, 2010.
+\newblock doi:10.1214/10-AOS799.
+
+\end{thebibliography}
+
+
+% ============================================================
+% SIGNED AI STATEMENT -- EXCLUDED FROM FOUR-PAGE LIMIT
+% ============================================================
+
+\newpage
+\section*{AI statement}
+
+TODO: Paste the exact AI statement required by the course here and sign
+it. Do not replace the official wording with model-generated wording.
+
+
+\end{document}
