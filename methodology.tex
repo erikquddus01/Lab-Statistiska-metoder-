@@ -1,0 +1,245 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+
+\title{Methodology for Kernel Density Estimation via Diffusion}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Data}
+
+Let \(X_1,\ldots,X_N\) be independent observations from an unknown density
+\(f\). The goal is to estimate \(f\) nonparametrically while reducing boundary
+bias and allowing adaptive smoothing through a diffusion model.
+
+\section{Gaussian KDE}
+
+The Gaussian kernel with smoothing parameter \(t>0\) is
+\[
+\phi(x,y;t)
+=
+\frac{1}{\sqrt{2\pi t}}
+\exp\left(-\frac{(x-y)^2}{2t}\right).
+\]
+The ordinary Gaussian kernel density estimator is implemented as
+\[
+\widehat f(x;t)
+=
+\frac{1}{N}\sum_{i=1}^N \phi(x,X_i;t).
+\]
+No library KDE routine is used.
+
+\section{Bandwidth Parameter}
+
+The ordinary bandwidth is \(h=\sqrt{t}\). The project keeps three smoothing
+parameters separate:
+\[
+\widehat t,\qquad \widehat t_2,\qquad t_\star.
+\]
+Here \(\widehat t\) builds the Gaussian pilot density, \(\widehat t_2\) is an
+auxiliary bandwidth for estimating roughness, and \(t_\star\) is the final
+diffusion time.
+
+\section{Algorithm 1}
+
+Algorithm 1 is the Improved Sheather--Jones plug-in selector from Botev,
+Grotowski and Kroese. For derivative order \(j\), equation (26) estimates
+\[
+\|f^{(j)}\|^2
+\approx
+\frac{(-1)^j}{N^2}
+\sum_{k=1}^N \sum_{m=1}^N
+\phi^{(2j)}(X_k,X_m;2t_j).
+\]
+The recursive map \(\gamma_j\) is based on equation (29):
+\[
+\widehat t_j
+=
+\left[
+\frac{1+2^{-(j+1/2)}}{3}
+\frac{1\cdot 3\cdot 5\cdots(2j-1)}
+{N\sqrt{\pi/2}\,\widehat{\|f^{(j+1)}\|^2}}
+\right]^{2/(3+2j)}.
+\]
+The fixed-point iteration uses
+\[
+z_{n+1}
+=
+\xi\,\gamma^{[l]}(z_n),
+\qquad
+\xi
+=
+\left(\frac{6\sqrt 2-3}{7}\right)^{2/5},
+\qquad l=5.
+\]
+The implementation evaluates the derivative functionals using the DCT
+acceleration recommended by the paper, but the recursion itself is implemented
+directly.
+
+\section{Outputs \(\widehat t\) and \(\widehat t_2\)}
+
+Algorithm 1 returns \(\widehat t\), the bandwidth parameter for the Gaussian
+pilot KDE, and \(\widehat t_2\), the auxiliary bandwidth associated with
+estimating \(\|f''\|^2\). The implementation also records whether the
+fixed-point iteration converged and how many iterations were used.
+
+\section{Pilot Density}
+
+After Algorithm 1, the pilot density is
+\[
+p(x)
+=
+\frac{1}{N}\sum_{i=1}^N \phi(x,X_i;\widehat t).
+\]
+This density is only a pilot for the diffusion operator. It is not the final
+estimator.
+
+\section{Diffusion PDE}
+
+The diffusion estimator solves
+\[
+\frac{\partial g}{\partial t}
+=
+\frac{1}{2}\frac{\partial}{\partial x}
+\left[
+a(x)\frac{\partial}{\partial x}
+\left(\frac{g(x,t)}{p(x)}\right)
+\right],
+\]
+with empirical initial condition \(g(x,0)=N^{-1}\sum_i\delta(x-X_i)\).
+On a bounded interval, no-flux boundary conditions are used.
+
+\section{Choice \(a(x)=p(x)\)}
+
+The numerical experiments use \(a(x)=p(x)\), as requested. Therefore
+\[
+\sigma^2(x)=\frac{a(x)}{p(x)}=1,
+\qquad
+\sigma(x)=1.
+\]
+The finite-volume discretization uses cell-centered densities and internal
+fluxes
+\[
+J_{i+1/2}
+=
+-\frac{1}{2}a_{i+1/2}
+\frac{r_{i+1}-r_i}{\Delta x},
+\qquad
+r_i=\frac{g_i}{p_i}.
+\]
+The boundary fluxes are set to zero, preserving total probability mass.
+
+\section{Estimating \(\|Lf\|^2\)}
+
+The paper's plug-in idea is used:
+\[
+\|Lf\|^2
+\approx
+\|Lg(\cdot;\widehat t_2)\|^2.
+\]
+Since \(Lg=\partial g/\partial t\), the implementation estimates
+\[
+\frac{\partial g}{\partial t}(x;\widehat t_2)
+\approx
+\frac{
+g(x;\widehat t_2+\varepsilon_t)
+-
+g(x;\widehat t_2)
+}{\varepsilon_t}.
+\]
+Then numerical quadrature gives
+\[
+\widehat R
+=
+\int
+\left[
+\frac{\partial g}{\partial t}(x;\widehat t_2)
+\right]^2 dx.
+\]
+
+\section{Calculating \(t_\star\)}
+
+The asymptotic formula is
+\[
+t_\star
+=
+\left[
+\frac{\mathbb E_f[\sigma^{-1}(X)]}
+{2N\sqrt{\pi}\,\|Lf\|^2}
+\right]^{2/5}.
+\]
+Because \(a(x)=p(x)\), \(\sigma(x)=1\), so
+\[
+t_\star
+=
+\left[
+\frac{1}
+{2N\sqrt{\pi}\,\widehat R}
+\right]^{2/5}.
+\]
+
+\section{Final Diffusion Estimate}
+
+After \(t_\star\) is computed, the solver returns to the empirical initial
+condition and evolves the diffusion equation from \(t=0\) to \(t=t_\star\).
+The final estimator is
+\[
+g(x;t_\star).
+\]
+
+\section{ISE}
+
+When the true density is known, accuracy is measured by integrated squared
+error:
+\[
+\mathrm{ISE}
+=
+\int
+\left[
+\widehat f(x)-f(x)
+\right]^2 dx.
+\]
+The code evaluates this integral numerically on the plotting or diffusion
+grid.
+
+\section{Figure 1 Reproduction}
+
+The Figure 1 reproduction uses
+\[
+f(x)=4(1-x)^3,\qquad 0\le x\le 1,
+\]
+which is the \(\mathrm{Beta}(1,4)\) density, with \(N=1000\). The bandwidth is
+fixed from the paper:
+\[
+\sqrt t=0.05248.
+\]
+This experiment does not run Algorithm 1. It compares the true density, the
+manual Gaussian KDE, and the reflected boundary estimator
+\[
+\kappa(x,X_i;t)
+=
+\sum_{k=-\infty}^{\infty}
+\left[
+\phi(x,2k+X_i;t)+\phi(x,2k-X_i;t)
+\right].
+\]
+The infinite reflection sum is truncated numerically when additional terms are
+negligible.
+
+\section{Sample-Size Variation}
+
+The variation experiment uses the same \(\mathrm{Beta}(1,4)\) target density and
+sample sizes
+\[
+N\in\{50,100,250,500,1000,5000\}.
+\]
+For each \(N\), independent samples are generated, Algorithm 1 constructs the
+pilot bandwidths, Algorithm 2 computes the diffusion KDE, and ISE is recorded.
+The script saves both summary and repetition-level CSV files and plots mean
+ISE against sample size.
+
+\end{document}
